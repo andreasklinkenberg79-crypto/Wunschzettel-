@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Vincents Geburtstagswunschzettel</title>
+
+<style>
+body {
+  font-family: Arial;
+  background: #f5f7fb;
+  padding: 20px;
+}
+
+h1 {
+  text-align: center;
+}
+
+.controls {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+select {
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 10px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: scale(1.03);
+}
+
+.card img {
+  width: 100%;
+  border-radius: 12px;
+  height: 260px;
+  object-fit: cover;
+}
+
+.price {
+  font-weight: bold;
+}
+
+.badge {
+  display: inline-block;
+  background: orange;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+button {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.free { background:#007bff; color:white; }
+.reserved { background:#ccc; }
+.release { background:#28a745; color:white; }
+</style>
+</head>
+
+<body>
+
+<h1>🎁 Vincents Geburtstagswunschzettel</h1>
+
+<div class="controls">
+  <select id="filter">
+    <option value="all">Alle Kategorien</option>
+  </select>
+
+  <br><br>
+
+  <label>Max Preis: <span id="priceValue">100</span> €</label><br>
+  <input type="range" id="priceFilter" min="0" max="200" value="100">
+</div>
+
+<div class="grid" id="shop"></div>
+
+<script type="module">
+
+// Preisfilterlogik
+document.getElementById("priceFilter").oninput = function() {
+  document.getElementById("priceValue").innerText = this.value;
+  applyFilter();
+};  
+
+// 🔑 DEIN FIREBASE CODE
+const firebaseConfig = {
+  apiKey: "AIzaSyC-xF2KMyVrZr_VUT71rXf8ax571KZw80k",
+  authDomain: "vincents-wunschzettel.firebaseapp.com",
+  projectId: "vincents-wunschzettel",
+  storageBucket: "vincents-wunschzettel.firebasestorage.app",
+  messagingSenderId: "456038848570",
+  appId: "1:456038848570:web:0f29f33cd7794013b13d03"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {
+  getFirestore,
+  doc,
+  onSnapshot,
+  updateDoc,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// 🎭 Modus
+const urlParams = new URLSearchParams(window.location.search);
+const isFamilyMode = urlParams.get('family') === '1';
+
+let allItems = [];
+
+onSnapshot(doc(db, "wishlist", "global"), (docSnap) => {
+  const data = docSnap.data();
+  allItems = data.items;
+  buildFilter(allItems);
+  render(allItems);
+});
+
+function buildFilter(items) {
+  const select = document.getElementById("filter");
+  const categories = [...new Set(items.map(i => i.category || "Sonstiges"))];
+
+  select.innerHTML = `<option value="all">Alle Kategorien</option>`;
+  categories.forEach(cat => {
+    select.innerHTML += `<option value="${cat}">${cat}</option>`;
+  });
+
+  select.onchange = () => applyFilter();
+}
+
+function applyFilter() {
+  const cat = document.getElementById("filter").value;
+  const maxPrice = document.getElementById("priceFilter").value;
+
+  let filtered = allItems;
+
+  if (cat !== "all") {
+    filtered = filtered.filter(i => i.category === cat);
+  }
+
+  filtered = filtered.filter(i => !i.price || i.price <= maxPrice);
+
+  render(filtered);
+}
+
+function render(items) {
+  const container = document.getElementById("shop");
+  container.innerHTML = "";
+
+  items.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "card";
+
+    let button = "";
+    let info = "";
+
+    if (isFamilyMode) {
+      if (item.status === "frei") {
+        button = `<button class="free" onclick="reserve('${item.id}')">Ich kaufe das</button>`;
+      } else {
+        info = `<p>Reserviert von ${item.reservedBy}</p>`;
+        button = `
+          <button class="reserved">Reserviert</button>
+          <button class="release" onclick="release('${item.id}')">Freigeben</button>
+        `;
+      }
+    } else {
+      button = `<button class="free">Wunsch</button>`;
+    }
+
+    div.innerHTML = `
+      <img src="${item.image || 'https://via.placeholder.com/300'}">
+      <h3>${item.name}</h3>
+      <p class="price">${item.price ? item.price + " €" : ""}</p>
+      <span class="badge">${item.category || "Sonstiges"}</span>
+	  <p><strong>${item.shop || ""}</strong></p>
+	  <a href=${item.link || '#'}" target="_blank">Zum Shop</a>
+      ${info}
+      ${button}
+    `;
+
+    container.appendChild(div);
+  });
+}
+
+// 🛒 Reservieren
+window.reserve = async function(id) {
+  const name = prompt("Dein Name?");
+  if (!name) return;
+
+  const ref = doc(db, "wishlist", "global");
+  const snap = await getDoc(ref);
+  const data = snap.data();
+
+  const updated = data.items.map(item => {
+    if (item.id === id && item.status === "frei") {
+      return { ...item, status: "reserviert", reservedBy: name };
+    }
+    return item;
+  });
+
+  await updateDoc(ref, { items: updated });
+};
+
+// 🔓 Freigeben
+window.release = async function(id) {
+  const ref = doc(db, "wishlist", "global");
+  const snap = await getDoc(ref);
+  const data = snap.data();
+
+  const updated = data.items.map(item => {
+    if (item.id === id) {
+      return { ...item, status: "frei", reservedBy: "" };
+    }
+    return item;
+  });
+
+  await updateDoc(ref, { items: updated });
+};
+
+</script>
+
+</body>
+</html>
+
+
+
